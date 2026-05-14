@@ -1,18 +1,22 @@
-
 let currentRequestId = null;
+let selectedCA = null;
 
 document.getElementById('ssl-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!selectedCA) {
+        alert('請先選擇SSL服務商');
+        return;
+    }
+    
     const domain = document.getElementById('domain').value;
-    const ca = document.getElementById('ca').value;
     const email = document.getElementById('email').value;
     
     try {
         const response = await fetch('/api/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domain, ca, email })
+            body: JSON.stringify({ domain, ca: selectedCA, email })
         });
         
         const data = await response.json();
@@ -28,6 +32,35 @@ document.getElementById('ssl-form').addEventListener('submit', async (e) => {
     }
 });
 
+// CA Selector Functions
+function toggleCAOptions() {
+    const modal = document.getElementById('ca-modal');
+    const arrow = document.getElementById('ca-arrow');
+    
+    if (modal.classList.contains('hidden')) {
+        modal.classList.remove('hidden');
+        modal.classList.add('modal-enter');
+        arrow.style.transform = 'rotate(180deg)';
+    } else {
+        modal.classList.add('hidden');
+        modal.classList.remove('modal-enter');
+        arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
+function selectCA(value, displayText) {
+    selectedCA = value;
+    document.getElementById('ca-selected-text').textContent = displayText;
+    document.getElementById('ca-selected-text').classList.remove('opacity-50');
+    document.getElementById('ca-selected-text').classList.add('font-medium');
+    
+    // Mark selected option
+    document.querySelectorAll('.ca-option').forEach(el => el.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+    
+    toggleCAOptions();
+}
+
 function showVerificationStep(verification) {
     document.getElementById('step-form').classList.add('hidden');
     document.getElementById('step-verify').classList.remove('hidden');
@@ -36,51 +69,57 @@ function showVerificationStep(verification) {
     
     if (verification.type === 'http-01') {
         content.innerHTML = `
-            <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-                <h3 class="font-bold text-yellow-800 mb-2">HTTP-01 驗證方法</h3>
-                <p class="text-yellow-700 text-sm mb-4">請在您的網站根目錄建立以下檔案</p>
+            <div class="mb-7 glass-card p-7">
+                <h3 class="font-bold text-blue-800 text-xl mb-4 flex items-center">
+                    <span class="text-2xl mr-3">📁</span>
+                    HTTP-01 驗證方法
+                </h3>
+                <p class="text-blue-700 opacity-80 mb-6">請在您的網站根目錄建立以下檔案</p>
             </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">檔案路徑</label>
-                <div class="flex gap-2">
+            <div class="mb-5">
+                <label class="block text-sm font-semibold text-blue-800 opacity-80 mb-3">檔案路徑</label>
+                <div class="flex gap-3">
                     <div class="code-block flex-grow">${verification.file.path}</div>
                     <button class="copy-btn" onclick="copyText('${verification.file.path}')">複製</button>
                 </div>
             </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">檔案內容</label>
-                <div class="flex gap-2">
+            <div class="mb-5">
+                <label class="block text-sm font-semibold text-blue-800 opacity-80 mb-3">檔案內容</label>
+                <div class="flex gap-3">
                     <div class="code-block flex-grow">${verification.file.content}</div>
                     <button class="copy-btn" onclick="copyText('${verification.file.content}')">複製</button>
                 </div>
             </div>
-            <p class="text-gray-600 text-sm">建立完檔案後，點擊「檢查驗證狀態」按鈕</p>
+            <p class="text-blue-700 opacity-70 text-sm">建立完檔案後，點擊「檢查驗證狀態」按鈕</p>
         `;
     } else if (verification.type === 'dns-01') {
         content.innerHTML = `
-            <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-                <h3 class="font-bold text-yellow-800 mb-2">DNS-01 驗證方法</h3>
-                <p class="text-yellow-700 text-sm mb-4">請在您的DNS管理員新增以下TXT記錄</p>
+            <div class="mb-7 glass-card p-7">
+                <h3 class="font-bold text-blue-800 text-xl mb-4 flex items-center">
+                    <span class="text-2xl mr-3">🌐</span>
+                    DNS-01 驗證方法
+                </h3>
+                <p class="text-blue-700 opacity-80 mb-6">請在您的DNS管理員新增以下TXT記錄</p>
             </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">記錄類型</label>
+            <div class="mb-5">
+                <label class="block text-sm font-semibold text-blue-800 opacity-80 mb-3">記錄類型</label>
                 <div class="code-block">${verification.record.type}</div>
             </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">主機名稱</label>
-                <div class="flex gap-2">
+            <div class="mb-5">
+                <label class="block text-sm font-semibold text-blue-800 opacity-80 mb-3">主機名稱</label>
+                <div class="flex gap-3">
                     <div class="code-block flex-grow">${verification.record.name}</div>
                     <button class="copy-btn" onclick="copyText('${verification.record.name}')">複製</button>
                 </div>
             </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">記錄值</label>
-                <div class="flex gap-2">
+            <div class="mb-5">
+                <label class="block text-sm font-semibold text-blue-800 opacity-80 mb-3">記錄值</label>
+                <div class="flex gap-3">
                     <div class="code-block flex-grow">${verification.record.value}</div>
                     <button class="copy-btn" onclick="copyText('${verification.record.value}')">複製</button>
                 </div>
             </div>
-            <p class="text-gray-600 text-sm">DNS記錄生效可能需要幾分鐘，請稍後再點擊「檢查驗證狀態」</p>
+            <p class="text-blue-700 opacity-70 text-sm">DNS記錄生效可能需要幾分鐘，請稍後再點擊「檢查驗證狀態」</p>
         `;
     }
 }

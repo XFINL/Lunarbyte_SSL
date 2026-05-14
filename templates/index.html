@@ -1,80 +1,104 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>一鍵免費SSL申請</title>
+    <title>🔐 一鍵免費SSL申請</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-gray-50">
-    <div id="app" class="min-h-screen flex flex-col">
+<body class="relative overflow-x-hidden">
+    <!-- Background Elements -->
+    <div class="fixed inset-0 bg-gradient-to-br from-sky-100 via-blue-50 to-purple-100 z-0"></div>
+    <div class="fixed top-20 left-20 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-float"></div>
+    <div class="fixed top-40 right-20 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-float" style="animation-delay: 2s;"></div>
+    <div class="fixed bottom-20 left-40 w-72 h-72 bg-sky-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-float" style="animation-delay: 4s;"></div>
+
+    <div id="app" class="relative min-h-screen flex flex-col z-10">
         <!-- Header -->
-        <header class="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
-            <div class="container mx-auto px-4 py-6">
-                <h1 class="text-3xl font-bold">🔐 一鍵免費SSL申請</h1>
-                <p class="text-blue-100 mt-2">快速申請ZeroSSL或Let's Encrypt免費證書</p>
+        <header class="py-8">
+            <div class="container mx-auto px-4 text-center">
+                <h1 class="text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-500 to-blue-600 bg-clip-text text-transparent mb-3">
+                    🔐 SSL申請精靈
+                </h1>
+                <p class="text-blue-700 text-lg opacity-80">快速申請Google或ZeroSSL免費證書</p>
             </div>
         </header>
 
         <!-- Main Content -->
-        <main class="flex-grow container mx-auto px-4 py-12">
+        <main class="flex-grow container mx-auto px-4 py-8">
             <!-- Step 1: Form -->
             <div id="step-form" class="step">
                 <div class="max-w-2xl mx-auto">
-                    <div class="bg-white rounded-2xl shadow-xl p-8">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-2">申請SSL證書</h2>
-                        <p class="text-gray-600 mb-8">填寫以下資訊開始申請您的免費SSL證書</p>
+                    <!-- Main Glass Card -->
+                    <div class="glass-card p-10 mb-8">
+                        <h2 class="text-3xl font-bold bg-gradient-to-r from-blue-700 to-purple-600 bg-clip-text text-transparent mb-3">
+                            開始您的SSL旅程
+                        </h2>
+                        <p class="text-blue-800 opacity-70 mb-10 text-lg">
+                            簡單幾步，為您的網站加上安全鎖
+                        </p>
                         
-                        <form id="ssl-form">
-                            <div class="mb-6">
-                                <label for="domain" class="block text-sm font-medium text-gray-700 mb-2">域名 (Domain)</label>
-                                <input type="text" id="domain" name="domain" required
-                                    class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition"
-                                    placeholder="example.com">
+                        <form id="ssl-form" class="space-y-7">
+                            <div class="space-y-3">
+                                <label class="block text-sm font-semibold text-blue-800 opacity-80">
+                                    🌐 域名 (Domain)
+                                </label>
+                                <div class="glass-input-wrapper">
+                                    <input type="text" id="domain" name="domain" required
+                                        class="glass-input"
+                                        placeholder="yourdomain.com">
+                                </div>
                             </div>
 
-                            <div class="mb-6">
-                                <label for="ca" class="block text-sm font-medium text-gray-700 mb-2">SSL 服務商</label>
-                                <select id="ca" name="ca"
-                                    class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition">
-                                    <option value="letsencrypt_staging">Let's Encrypt (Staging - 測試用)</option>
-                                    <option value="letsencrypt">Let's Encrypt (正式)</option>
-                                    <option value="zerossl">ZeroSSL</option>
-                                </select>
+                            <div class="space-y-3">
+                                <label class="block text-sm font-semibold text-blue-800 opacity-80">
+                                    🏢 SSL 服務商
+                                </label>
+                                <div id="ca-selector" class="glass-input cursor-pointer flex items-center justify-between" onclick="toggleCAOptions()">
+                                    <span id="ca-selected-text" class="text-blue-700">請選擇服務商</span>
+                                    <svg class="w-5 h-5 text-blue-600 transition-transform" id="ca-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                    </svg>
+                                </div>
                             </div>
 
-                            <div class="mb-8">
-                                <label for="email" class="block text-sm font-medium text-gray-700 mb-2">聯絡Email (選填)</label>
-                                <input type="email" id="email" name="email"
-                                    class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition"
-                                    placeholder="admin@example.com">
+                            <div class="space-y-3">
+                                <label class="block text-sm font-semibold text-blue-800 opacity-80">
+                                    📧 聯絡Email (選填)
+                                </label>
+                                <div class="glass-input-wrapper">
+                                    <input type="email" id="email" name="email"
+                                        class="glass-input"
+                                        placeholder="admin@yourdomain.com">
+                                </div>
                             </div>
 
-                            <button type="submit"
-                                class="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition">
-                                開始申請 →
+                            <button type="submit" class="w-full glass-button-primary py-4 px-8 mt-4">
+                                <span class="text-lg font-semibold">開始申請</span>
+                                <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                                </svg>
                             </button>
                         </form>
                     </div>
 
                     <!-- Features -->
-                    <div class="mt-8 grid md:grid-cols-3 gap-4">
-                        <div class="bg-white rounded-xl p-6 shadow-md">
-                            <div class="text-3xl mb-3">⚡</div>
-                            <h3 class="font-bold text-gray-800">快速申請</h3>
-                            <p class="text-gray-600 text-sm mt-2">只需幾分鐘即可完成</p>
+                    <div class="grid md:grid-cols-3 gap-5">
+                        <div class="glass-card p-7 text-center">
+                            <div class="text-4xl mb-4">⚡</div>
+                            <h3 class="font-bold text-blue-800 text-lg mb-2">閃電速度</h3>
+                            <p class="text-blue-700 opacity-70 text-sm">數分鐘內完成申請</p>
                         </div>
-                        <div class="bg-white rounded-xl p-6 shadow-md">
-                            <div class="text-3xl mb-3">🛡️</div>
-                            <h3 class="font-bold text-gray-800">完全免費</h3>
-                            <p class="text-gray-600 text-sm mt-2">零費用，90天有效期</p>
+                        <div class="glass-card p-7 text-center">
+                            <div class="text-4xl mb-4">🛡️</div>
+                            <h3 class="font-bold text-blue-800 text-lg mb-2">絕對免費</h3>
+                            <p class="text-blue-700 opacity-70 text-sm">90天超長有效期</p>
                         </div>
-                        <div class="bg-white rounded-xl p-6 shadow-md">
-                            <div class="text-3xl mb-3">📋</div>
-                            <h3 class="font-bold text-gray-800">簡單操作</h3>
-                            <p class="text-gray-600 text-sm mt-2">無須技術背景</p>
+                        <div class="glass-card p-7 text-center">
+                            <div class="text-4xl mb-4">✨</div>
+                            <h3 class="font-bold text-blue-800 text-lg mb-2">簡單直覺</h3>
+                            <p class="text-blue-700 opacity-70 text-sm">零技術門檻</p>
                         </div>
                     </div>
                 </div>
@@ -83,29 +107,34 @@
             <!-- Step 2: Verification -->
             <div id="step-verify" class="step hidden">
                 <div class="max-w-3xl mx-auto">
-                    <div class="bg-white rounded-2xl shadow-xl p-8">
-                        <div class="flex items-center mb-6">
-                            <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold mr-3">2</div>
-                            <h2 class="text-2xl font-bold text-gray-800">驗證域名所有權</h2>
+                    <div class="glass-card p-10">
+                        <div class="flex items-center mb-8">
+                            <div class="w-14 h-14 glass-icon flex items-center justify-center mr-5">
+                                <span class="text-2xl font-bold text-blue-700">2</span>
+                            </div>
+                            <div>
+                                <h2 class="text-2xl font-bold bg-gradient-to-r from-blue-700 to-purple-600 bg-clip-text text-transparent">
+                                    驗證域名所有權
+                                </h2>
+                                <p class="text-blue-700 opacity-70 mt-1">請完成以下驗證步驟</p>
+                            </div>
                         </div>
 
-                        <div id="verification-content" class="mb-8"></div>
+                        <div id="verification-content" class="mb-9"></div>
 
                         <div class="flex flex-col sm:flex-row gap-4">
-                            <button id="check-btn"
-                                class="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 px-6 rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
-                                檢查驗證狀態
+                            <button id="check-btn" class="flex-1 glass-button-primary py-4">
+                                <span class="font-semibold">檢查驗證狀態</span>
                             </button>
-                            <button id="back-btn"
-                                class="flex-1 bg-gray-200 text-gray-700 py-3 px-6 rounded-xl font-semibold hover:bg-gray-300 transition">
-                                返回
+                            <button id="back-btn" class="flex-1 glass-button-secondary py-4">
+                                <span class="font-semibold">返回</span>
                             </button>
                         </div>
 
-                        <div id="checking-status" class="hidden mt-4 p-4 bg-blue-50 text-blue-700 rounded-xl">
+                        <div id="checking-status" class="hidden mt-6 glass-card p-5">
                             <div class="flex items-center">
-                                <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
-                                正在檢查驗證狀態...
+                                <div class="animate-spin rounded-full h-6 w-6 border-3 border-blue-400 border-t-transparent mr-4"></div>
+                                <span class="text-blue-700 font-medium">正在檢查驗證狀態...</span>
                             </div>
                         </div>
                     </div>
@@ -115,50 +144,48 @@
             <!-- Step 3: Download -->
             <div id="step-download" class="step hidden">
                 <div class="max-w-3xl mx-auto">
-                    <div class="bg-white rounded-2xl shadow-xl p-8">
-                        <div class="text-center mb-8">
-                            <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="glass-card p-10">
+                        <div class="text-center mb-10">
+                            <div class="w-24 h-24 glass-icon mx-auto mb-6 flex items-center justify-center">
+                                <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                             </div>
-                            <h2 class="text-3xl font-bold text-gray-800 mb-2">證書申請成功！</h2>
-                            <p class="text-gray-600">您的SSL證書已準備就緒，請下載以下檔案</p>
+                            <h2 class="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent mb-3">
+                                🎉 證書申請成功！
+                            </h2>
+                            <p class="text-blue-700 opacity-80 text-lg">您的SSL證書已準備就緒</p>
                         </div>
 
-                        <div class="grid md:grid-cols-3 gap-6 mb-8">
-                            <div class="bg-gray-50 rounded-xl p-6 border-2 border-dashed border-gray-200 hover:border-blue-400 transition">
-                                <div class="text-4xl mb-3">📄</div>
-                                <h3 class="font-bold text-gray-800 mb-1">Certificate</h3>
-                                <p class="text-gray-500 text-sm mb-4">domain.crt</p>
-                                <button onclick="downloadFile('cert')"
-                                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-blue-700 transition">
+                        <div class="grid md:grid-cols-3 gap-6 mb-10">
+                            <div class="glass-card p-7 border-2 border-dashed border-blue-300 hover:border-blue-400 transition-all">
+                                <div class="text-5xl mb-4">📄</div>
+                                <h3 class="font-bold text-blue-800 text-xl mb-2">Certificate</h3>
+                                <p class="text-blue-700 opacity-60 text-sm mb-5">domain.crt</p>
+                                <button onclick="downloadFile('cert')" class="w-full glass-button-secondary py-3">
                                     下載
                                 </button>
                             </div>
-                            <div class="bg-gray-50 rounded-xl p-6 border-2 border-dashed border-gray-200 hover:border-blue-400 transition">
-                                <div class="text-4xl mb-3">🔑</div>
-                                <h3 class="font-bold text-gray-800 mb-1">Private Key</h3>
-                                <p class="text-gray-500 text-sm mb-4">domain.key</p>
-                                <button onclick="downloadFile('key')"
-                                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-blue-700 transition">
+                            <div class="glass-card p-7 border-2 border-dashed border-blue-300 hover:border-blue-400 transition-all">
+                                <div class="text-5xl mb-4">🔑</div>
+                                <h3 class="font-bold text-blue-800 text-xl mb-2">Private Key</h3>
+                                <p class="text-blue-700 opacity-60 text-sm mb-5">domain.key</p>
+                                <button onclick="downloadFile('key')" class="w-full glass-button-secondary py-3">
                                     下載
                                 </button>
                             </div>
-                            <div class="bg-gray-50 rounded-xl p-6 border-2 border-dashed border-gray-200 hover:border-blue-400 transition">
-                                <div class="text-4xl mb-3">🔗</div>
-                                <h3 class="font-bold text-gray-800 mb-1">CA Chain</h3>
-                                <p class="text-gray-500 text-sm mb-4">domain_chain.crt</p>
-                                <button onclick="downloadFile('chain')"
-                                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-blue-700 transition">
+                            <div class="glass-card p-7 border-2 border-dashed border-blue-300 hover:border-blue-400 transition-all">
+                                <div class="text-5xl mb-4">🔗</div>
+                                <h3 class="font-bold text-blue-800 text-xl mb-2">CA Chain</h3>
+                                <p class="text-blue-700 opacity-60 text-sm mb-5">domain_chain.crt</p>
+                                <button onclick="downloadFile('chain')" class="w-full glass-button-secondary py-3">
                                     下載
                                 </button>
                             </div>
                         </div>
 
-                        <button onclick="location.reload()"
-                            class="w-full bg-gray-200 text-gray-700 py-3 px-6 rounded-xl font-semibold hover:bg-gray-300 transition">
-                            申請新證書
+                        <button onclick="location.reload()" class="w-full glass-button-secondary py-4">
+                            <span class="font-semibold text-lg">申請新證書</span>
                         </button>
                     </div>
                 </div>
@@ -166,11 +193,54 @@
         </main>
 
         <!-- Footer -->
-        <footer class="bg-gray-800 text-gray-300 py-8">
+        <footer class="py-10">
             <div class="container mx-auto px-4 text-center">
-                <p>一鍵免費SSL申請工具 © 2024</p>
+                <p class="text-blue-800 opacity-70">
+                    一鍵免費SSL申請工具 ✨ 2024
+                </p>
             </div>
         </footer>
+    </div>
+
+    <!-- CA Selector Modal -->
+    <div id="ca-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-blue-900 bg-opacity-30 backdrop-blur-sm" onclick="toggleCAOptions()"></div>
+        <div class="relative flex items-center justify-center min-h-screen p-4">
+            <div class="glass-card p-8 w-full max-w-md relative">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-2xl font-bold bg-gradient-to-r from-blue-700 to-purple-600 bg-clip-text text-transparent">
+                        選擇SSL服務商
+                    </h3>
+                    <button onclick="toggleCAOptions()" class="w-10 h-10 rounded-full glass-icon flex items-center justify-center">
+                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="glass-card ca-option p-5 cursor-pointer hover:scale-[1.02] transition-all" onclick="selectCA('google', 'Google Trust Services')">
+                        <div class="flex items-center">
+                            <div class="text-3xl mr-4">🔵</div>
+                            <div>
+                                <h4 class="font-bold text-blue-800 text-lg">Google Trust Services</h4>
+                                <p class="text-blue-700 opacity-70 text-sm">由Google提供的可信證書</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="glass-card ca-option p-5 cursor-pointer hover:scale-[1.02] transition-all" onclick="selectCA('zerossl', 'ZeroSSL')">
+                        <div class="flex items-center">
+                            <div class="text-3xl mr-4">🟢</div>
+                            <div>
+                                <h4 class="font-bold text-blue-800 text-lg">ZeroSSL</h4>
+                                <p class="text-blue-700 opacity-70 text-sm">簡單易用的免費SSL證書</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>
