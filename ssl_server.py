@@ -191,10 +191,17 @@ def create_request():
     if '.' not in domain or len(domain) < 4:
         return jsonify({'error': '请输入有效的域名格式'}), 400
     
-    # 检查域名是否包含非法字符
-    allowed_chars = set('abcdefghijklmnopqrstuvwxyz0123456789.-')
+    # 检查域名是否包含非法字符（支持泛域名 *）
+    allowed_chars = set('abcdefghijklmnopqrstuvwxyz0123456789.-*')
     if not all(c in allowed_chars for c in domain):
         return jsonify({'error': '域名包含非法字符'}), 400
+    
+    # 验证泛域名格式
+    if domain.startswith('*.'):
+        # 泛域名格式验证 *.example.com
+        base_domain = domain[2:]
+        if '.' not in base_domain or len(base_domain) < 3:
+            return jsonify({'error': '泛域名格式无效'}), 400
     
     request_id = str(uuid.uuid4())
     
