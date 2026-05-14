@@ -264,7 +264,11 @@ def create_request():
             
         elif challenge_type == 'dns-01':
             response = challenge.chall.response(jose.JWKRSA(key=account_key))
-            validation_value = base64.b64encode(response.key_authorization_hash).decode('utf-8')
+            # key_authorization_hash 可能是列表，需要正确处理
+            hash_data = response.key_authorization_hash
+            if isinstance(hash_data, list):
+                hash_data = bytes(hash_data)
+            validation_value = base64.b64encode(hash_data).decode('utf-8')
             
             verification_info['record'] = {
                 'type': 'TXT',
