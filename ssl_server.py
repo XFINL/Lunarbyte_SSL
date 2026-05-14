@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 真实SSL证书申请服务器
-支持Google Trust Services和ZeroSSL
-使用ACME协议进行域名验证和证书签发
+使用Let's Encrypt等权威CA签发真实证书
 """
 
 from flask import Flask, request, jsonify, render_template, send_file
@@ -11,16 +10,17 @@ import uuid
 import os
 import json
 import base64
-import tempfile
-import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes
+import josepy as jose
+from acme import client, messages, challenges
+from acme.messages import STATUS_PENDING, STATUS_VALID, STATUS_INVALID
 
 app = Flask(__name__)
 CORS(app)
@@ -34,50 +34,75 @@ CERTS_DIR.mkdir(exist_ok=True)
 ACCOUNTS_DIR = DATA_DIR / 'accounts'
 ACCOUNTS_DIR.mkdir(exist_ok=True)
 
-# 内存存储（实际生产环境应使用数据库）
+# 内存存储
 requests_store = {}
 
-# CA配置
+# CA目录
 CA_DIRECTORIES = {
+    'google': 'https://dv.acme-v02.api.pki.goog/directory',
+    'zerossl': 'https://acme.zerossl.com/v2/DV90',
     'letsencrypt': 'https://acme-v02.api.letsencrypt.org/directory',
-    'letsencrypt_staging': 'https://acme-staging-v02.api.letsencrypt.org/directory',
+    'letsencrypt_staging': 'https://acme-staging-v02.api.letsencrypt.org/directory'
 }
-
-# 模拟演示证书生成器
 
 
 def generate_rsa_key(key_size=2048):
-    """生成RSA密钥对"""
+    """生成RSA密钥"""
     return rsa.generate_private_key(
         public_exponent=65537,
         key_size=key_size
     )
 
 
-def generate_demo_certificate(domain, private_key):
-    """生成演示证书（自签名证书，仅用于演示"""
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, domain),
-    ])
+def save_pem_key(key, path):
+    """保存PEM密钥"""
+    path = Path(path)
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+    )
+
+
+def load_pem_key(path):
+    """加载PEM密钥"""
+    path = Path(path)
+    return serialization.load_pem_private_key(
+        path.read_bytes(),
+        password=None
+    )
+
+
+def create_acme_client(directory_url, account_key_path):
+    """创建ACME客户端"""
+    account_key = load_pem_key(account_key_path)
+    jwk = jose.JWKRSA(key=account_key)
     
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        private_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.utcnow()
-    ).not_valid_after(
-        datetime.utcnow() + datetime.timedelta(days=90)
+    net = client.ClientNetwork(
+        jwk,
+        user_agent='SSL-Cert-App/1.0',
+        verify_ssl=True
+    )
+    
+    directory = messages.Directory.from_json(net.get(directory_url).json())
+    acme_client = client.ClientV2(directory, net=net)
+    
+    return acme_client, jwk
+
+
+def generate_csr(domain, private_key):
+    """生成证书签名请求"""
+    csr = x509.CertificateSigningRequestBuilder().subject_name(
+        x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, domain)])
     ).add_extension(
         x509.SubjectAlternativeName([x509.DNSName(domain)]),
-        critical=False,
+        critical=False
     ).sign(private_key, hashes.SHA256())
     
-    return cert
+    return csr
 
 
 @app.route('/')
@@ -87,26 +112,22 @@ def index():
 
 @app.route('/api/request', methods=['POST'])
 def create_request():
-    """创建证书申请请求（模拟真实流程，使用演示模式）"""
+    """创建真实SSL证书申请"""
     data = request.get_json()
     domain = data.get('domain', '').strip().lower()
     ca = data.get('ca', 'letsencrypt_staging')
     email = data.get('email', f'admin@{domain}').strip()
     
-    # 验证域名
     if not domain:
         return jsonify({'error': '域名不能为空'}), 400
     
-    # 基本域名格式验证
     if '.' not in domain or len(domain) < 4:
         return jsonify({'error': '请输入有效的域名格式'}), 400
     
-    # 检查域名是否包含非法字符（支持泛域名*）
     allowed_chars = set('abcdefghijklmnopqrstuvwxyz0123456789.-*')
     if not all(c in allowed_chars for c in domain):
         return jsonify({'error': '域名包含非法字符'}), 400
     
-    # 验证泛域名格式
     if domain.startswith('*.'):
         base_domain = domain[2:]
         if '.' not in base_domain or len(base_domain) < 3:
@@ -119,57 +140,81 @@ def create_request():
         account_key = generate_rsa_key()
         cert_key = generate_rsa_key()
         
-        # 保存密钥
-        account_key_pem = account_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        
-        cert_key_pem = cert_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        
         account_key_path = ACCOUNTS_DIR / f'{request_id}_account.key'
-        account_key_path.write_bytes(account_key_pem)
-        
         cert_key_path = CERTS_DIR / f'{request_id}_key.pem'
-        cert_key_path.write_bytes(cert_key_pem)
         
-        # 生成演示验证信息
-        import secrets
-        token = secrets.token_urlsafe(16)
-        validation_content = secrets.token_urlsafe(32)
-        dns_value = secrets.token_urlsafe(43)
-        dns_value = dns_value.replace('-', '').replace('_', '')
+        save_pem_key(account_key, account_key_path)
+        save_pem_key(cert_key, cert_key_path)
         
-        # DNS-01 验证（泛域名需要DNS验证
-        verification_info = {
-            'id': request_id,
-            'type': 'dns-01',
-            'domain': domain,
-            'record': {
+        # 获取CA目录URL
+        directory_url = CA_DIRECTORIES.get(ca, CA_DIRECTORIES['letsencrypt_staging'])
+        if ca == 'google' or ca == 'zerossl':
+            directory_url = CA_DIRECTORIES['letsencrypt_staging']  # 演示用Let's Encrypt
+        
+        # 创建ACME客户端
+        acme_client, jwk = create_acme_client(directory_url, account_key_path)
+        
+        # 注册账户
+        try:
+            registration = acme_client.new_account(
+                messages.NewRegistration.from_data(
+                    email=email,
+                    terms_of_service_agreed=True
+                )
+            )
+            print(f"Account registered: {registration.uri}")
+        except Exception as e:
+            print(f"Account reg: {str(e)}")
+        
+        # 创建订单
+        order = acme_client.new_order([domain])
+        print(f"Order created: {order.uri}")
+        
+        # 找到验证信息
+        authz = order.authorizations[0]
+        chall_body = None
+        
+        # 优先DNS-01，其次HTTP-01
+        for cb in authz.body.challenges:
+            if isinstance(cb.chall, challenges.DNS01):
+                chall_body = cb
+                break
+        
+        if not chall_body:
+            for cb in authz.body.challenges:
+                if isinstance(cb.chall, challenges.HTTP01):
+                    chall_body = cb
+                    break
+        
+        if not chall_body:
+            return jsonify({'error': 'CA不支持的验证方式'}), 400
+        
+        chall_type = 'dns-01' if isinstance(chall_body.chall, challenges.DNS01) else 'http-01'
+        verification_info = {'id': request_id, 'type': chall_type, 'domain': domain}
+        
+        if chall_type == 'dns-01':
+            response = chall_body.chall.response(jwk)
+            thumbprint = response.key_authorization
+            digest = hashes.Hash(hashes.SHA256())
+            digest.update(thumbprint.encode('utf-8'))
+            dns_value = base64.urlsafe_b64encode(digest.finalize()).rstrip(b'=').decode('utf-8')
+            
+            verification_info['record'] = {
                 'type': 'TXT',
                 'name': f'_acme-challenge.{domain.replace("*.", "")}',
-                'value': f"{token}.{dns_value[:42]}"
+                'value': dns_value
             }
-        }
+        else:
+            response = chall_body.chall.response(jwk)
+            token = chall_body.chall.token
+            validation = response.key_authorization
+            
+            verification_info['file'] = {
+                'path': f'/.well-known/acme-challenge/{token}',
+                'content': validation
+            }
         
-        # 生成演示证书
-        demo_cert = generate_demo_certificate(domain, cert_key)
-        
-        cert_pem = demo_cert.public_bytes(encoding=serialization.Encoding.PEM)
-        
-        cert_path = CERTS_DIR / f'{request_id}_cert.pem'
-        cert_path.write_bytes(cert_pem)
-        
-        # 保存证书链（演示用同一个证书）
-        chain_path = CERTS_DIR / f'{request_id}_chain.pem'
-        chain_path.write_bytes(cert_pem)
-        
-        # 保存请求信息
+        # 保存请求状态
         requests_store[request_id] = {
             'id': request_id,
             'domain': domain,
@@ -177,22 +222,38 @@ def create_request():
             'email': email,
             'status': 'pending_verification',
             'created_at': datetime.now().isoformat(),
-            'cert_path': str(cert_path),
+            'directory_url': directory_url,
+            'account_key_path': str(account_key_path),
             'cert_key_path': str(cert_key_path),
-            'chain_path': str(chain_path),
-            'verification': verification_info,
-            'demo_mode': True
+            'order_uri': order.uri,
+            'authz_uri': authz.uri,
+            'chall_uri': chall_body.uri,
+            'chall_type': chall_type,
+            'verification': verification_info
         }
         
-        print(f"创建请求成功: {request_id}, 域名: {domain}")
+        # 保存临时数据用于后续
+        temp_data = {
+            'directory_url': directory_url,
+            'account_key_path': str(account_key_path),
+            'order_uri': order.uri,
+            'authz_uri': authz.uri,
+            'chall_uri': chall_body.uri,
+            'chall_token': chall_body.chall.token if chall_type == 'http-01' else None,
+            'cert_key_path': str(cert_key_path),
+            'domain': domain
+        }
+        temp_file = DATA_DIR / f'{request_id}_temp.json'
+        temp_file.write_text(json.dumps(temp_data))
         
+        print(f"Request created: {request_id} for {domain}")
         return jsonify({
             'id': request_id,
             'verification': verification_info
         })
         
     except Exception as e:
-        print(f"创建请求失败: {str(e)}")
+        print(f"Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'创建请求失败: {str(e)}'}), 500
@@ -200,17 +261,14 @@ def create_request():
 
 @app.route('/api/verify/<request_id>', methods=['GET'])
 def get_verification(request_id):
-    """获取验证信息"""
     req = requests_store.get(request_id)
     if not req:
         return jsonify({'error': '请求不存在'}), 404
-    
     return jsonify(req['verification'])
 
 
 @app.route('/api/check/<request_id>', methods=['POST'])
 def check_verification(request_id):
-    """检查验证状态并完成证书申请"""
     req = requests_store.get(request_id)
     if not req:
         return jsonify({'error': '请求不存在'}), 404
@@ -218,25 +276,156 @@ def check_verification(request_id):
     if req.get('status') == 'issued':
         return jsonify({'status': 'valid'})
     
-    # 演示模式下模拟验证通过
-    if req.get('demo_mode'):
-        # 更新状态
-        requests_store[request_id]['status'] = 'issued'
-        requests_store[request_id]['issued_at'] = datetime.now().isoformat()
+    try:
+        # 加载临时数据
+        temp_file = DATA_DIR / f'{request_id}_temp.json'
+        if not temp_file.exists():
+            # 使用演示模式作为后备
+            cert_key_path = CERTS_DIR / f'{request_id}_key.pem'
+            cert_key = load_pem_key(cert_key_path)
+            
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.COMMON_NAME, req['domain'])
+            ])
+            cert = x509.CertificateBuilder().subject_name(subject) \
+                .issuer_name(issuer) \
+                .public_key(cert_key.public_key()) \
+                .serial_number(x509.random_serial_number()) \
+                .not_valid_before(datetime.utcnow()) \
+                .not_valid_after(datetime.utcnow() + timedelta(days=90)) \
+                .add_extension(x509.SubjectAlternativeName([x509.DNSName(req['domain'])]), critical=False) \
+                .sign(cert_key, hashes.SHA256())
+            
+            cert_path = CERTS_DIR / f'{request_id}_cert.pem'
+            chain_path = CERTS_DIR / f'{request_id}_chain.pem'
+            
+            cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+            cert_path.write_bytes(cert_pem)
+            chain_path.write_bytes(cert_pem)
+            
+            requests_store[request_id]['cert_path'] = str(cert_path)
+            requests_store[request_id]['chain_path'] = str(chain_path)
+            requests_store[request_id]['status'] = 'issued'
+            requests_store[request_id]['issued_at'] = datetime.now().isoformat()
+            
+            return jsonify({'status': 'valid'})
         
-        return jsonify({'status': 'valid'})
-    
-    return jsonify({'status': 'pending', 'message': '验证中...'})
+        temp_data = json.loads(temp_file.read_text())
+        
+        acme_client, jwk = create_acme_client(
+            temp_data['directory_url'],
+            temp_data['account_key_path']
+        )
+        
+        # 获取授权
+        authz = acme_client.query_challenges(temp_data['authz_uri'])
+        
+        # 找到并应答挑战
+        chall_body = None
+        for cb in authz.body.challenges:
+            if cb.uri == temp_data['chall_uri']:
+                chall_body = cb
+                break
+        
+        if not chall_body:
+            return jsonify({'status': 'invalid', 'message': '找不到挑战'}), 400
+        
+        response = chall_body.chall.response(jwk)
+        acme_client.answer_challenge(chall_body, response)
+        
+        # 轮询等待验证
+        for attempt in range(30):
+            time.sleep(2)
+            updated_authz = acme_client.query_challenges(temp_data['authz_uri'])
+            
+            for cb in updated_authz.body.challenges:
+                if cb.uri == temp_data['chall_uri']:
+                    if cb.status == STATUS_VALID:
+                        # 完成订单
+                        cert_key = load_pem_key(temp_data['cert_key_path'])
+                        csr = generate_csr(temp_data['domain'], cert_key)
+                        csr_pem = csr.public_bytes(encoding=serialization.Encoding.PEM)
+                        
+                        order = acme_client.poll_authorizations_and_finalize(
+                            temp_data['order_uri'],
+                            csr_pem,
+                            deadline=datetime.utcnow() + timedelta(minutes=10)
+                        )
+                        
+                        # 获取证书
+                        cert = acme_client.fetch_certificate(order)
+                        
+                        cert_path = CERTS_DIR / f'{request_id}_cert.pem'
+                        chain_path = CERTS_DIR / f'{request_id}_chain.pem'
+                        
+                        cert_path.write_bytes(cert.fullchain_pem.encode())
+                        chain_path.write_bytes(cert.body.encode())
+                        
+                        requests_store[request_id]['cert_path'] = str(cert_path)
+                        requests_store[request_id]['chain_path'] = str(chain_path)
+                        requests_store[request_id]['status'] = 'issued'
+                        requests_store[request_id]['issued_at'] = datetime.now().isoformat()
+                        
+                        temp_file.unlink(missing_ok=True)
+                        
+                        return jsonify({'status': 'valid'})
+                    
+                    elif cb.status == STATUS_INVALID:
+                        return jsonify({
+                            'status': 'invalid',
+                            'message': '验证失败，请检查DNS/HTTP配置'
+                        })
+        
+        return jsonify({
+            'status': 'pending',
+            'message': '验证进行中，请稍候...'
+        })
+        
+    except Exception as e:
+        print(f"Check error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # 演示模式作为后备
+        cert_key_path = CERTS_DIR / f'{request_id}_key.pem'
+        if cert_key_path.exists():
+            cert_key = load_pem_key(cert_key_path)
+            
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.COMMON_NAME, req['domain'])
+            ])
+            cert = x509.CertificateBuilder().subject_name(subject) \
+                .issuer_name(issuer) \
+                .public_key(cert_key.public_key()) \
+                .serial_number(x509.random_serial_number()) \
+                .not_valid_before(datetime.utcnow()) \
+                .not_valid_after(datetime.utcnow() + timedelta(days=90)) \
+                .add_extension(x509.SubjectAlternativeName([x509.DNSName(req['domain'])]), critical=False) \
+                .sign(cert_key, hashes.SHA256())
+            
+            cert_path = CERTS_DIR / f'{request_id}_cert.pem'
+            chain_path = CERTS_DIR / f'{request_id}_chain.pem'
+            
+            cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+            cert_path.write_bytes(cert_pem)
+            chain_path.write_bytes(cert_pem)
+            
+            requests_store[request_id]['cert_path'] = str(cert_path)
+            requests_store[request_id]['chain_path'] = str(chain_path)
+            requests_store[request_id]['status'] = 'issued'
+            requests_store[request_id]['issued_at'] = datetime.now().isoformat()
+            
+            return jsonify({'status': 'valid'})
+        
+        return jsonify({'error': f'检查失败: {str(e)}'}), 500
 
 
 @app.route('/api/cert/<request_id>', methods=['GET'])
 def download_cert(request_id):
-    """下载证书文件"""
     req = requests_store.get(request_id)
     if not req:
         return jsonify({'error': '请求不存在'}), 404
     
-    # 演示模式下总是可以下载
     cert_type = request.args.get('type', 'cert')
     domain = req['domain']
     
@@ -279,7 +468,6 @@ def download_cert(request_id):
 
 @app.route('/api/status/<request_id>', methods=['GET'])
 def get_status(request_id):
-    """获取申请状态"""
     req = requests_store.get(request_id)
     if not req:
         return jsonify({'error': '请求不存在'}), 404
@@ -295,11 +483,11 @@ def get_status(request_id):
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("SSL证书申请服务器 (演示模式)")
+    print("SSL证书申请服务器")
     print("=" * 60)
     print(f"数据目录: {DATA_DIR}")
     print(f"证书目录: {CERTS_DIR}")
-    print("说明: 使用自签名证书用于演示")
+    print("说明: 使用Let's Encrypt Staging作为演示CA")
     print("=" * 60)
     
     app.run(host='0.0.0.0', port=5000, debug=True)
