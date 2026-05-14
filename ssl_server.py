@@ -37,12 +37,10 @@ ACCOUNTS_DIR.mkdir(exist_ok=True)
 # 内存存储
 requests_store = {}
 
-# CA目录
+# CA目录 - 仅支持Google和ZeroSSL
 CA_DIRECTORIES = {
     'google': 'https://dv.acme-v02.api.pki.goog/directory',
-    'zerossl': 'https://acme.zerossl.com/v2/DV90',
-    'letsencrypt': 'https://acme-v02.api.letsencrypt.org/directory',
-    'letsencrypt_staging': 'https://acme-staging-v02.api.letsencrypt.org/directory'
+    'zerossl': 'https://acme.zerossl.com/v2/DV90'
 }
 
 
@@ -76,8 +74,8 @@ def load_pem_key(path):
     )
 
 
-def create_acme_client(directory_url, account_key_path):
-    """创建ACME客户端"""
+def create_acme_client(directory_url, account_key_path, eab_kid=None, eab_hmac_key=None):
+    """创建ACME客户端，支持EAB"""
     account_key = load_pem_key(account_key_path)
     jwk = jose.JWKRSA(key=account_key)
     
@@ -112,11 +110,13 @@ def index():
 
 @app.route('/api/request', methods=['POST'])
 def create_request():
-    """创建真实SSL证书申请"""
+    """创建真实SSL证书申请 - Google/ZeroSSL"""
     data = request.get_json()
     domain = data.get('domain', '').strip().lower()
-    ca = data.get('ca', 'letsencrypt_staging')
+    ca = data.get('ca', 'google')
     email = data.get('email', f'admin@{domain}').strip()
+    eab_kid = data.get('eab_kid', '').strip()
+    eab_hmac_key = data.get('eab_hmac_key', '').strip()
     
     if not domain:
         return jsonify({'error': '域名不能为空'}), 400
@@ -133,6 +133,18 @@ def create_request():
         if '.' not in base_domain or len(base_domain) < 3:
             return jsonify({'error': '泛域名格式无效'}), 400
     
+    # 验证CA选择
+    if ca not in CA_DIRECTORIES:
+        return jsonify({'error': '仅支持Google Trust Services和ZeroSSL'}), 400
+    
+    # 验证EAB凭证（Google/ZeroSSL需要）
+    if ca == 'google' or ca == 'zerossl':
+        if not eab_kid or not eab_hmac_key:
+            return jsonify({
+                'error': f'{ca}需要EAB凭证，请提供EAB KID和EAB HMAC Key',
+                'need_eab': True
+            }), 400
+    
     request_id = str(uuid.uuid4())
     
     try:
@@ -146,25 +158,56 @@ def create_request():
         save_pem_key(account_key, account_key_path)
         save_pem_key(cert_key, cert_key_path)
         
-        # 获取CA目录URL
-        directory_url = CA_DIRECTORIES.get(ca, CA_DIRECTORIES['letsencrypt_staging'])
-        if ca == 'google' or ca == 'zerossl':
-            directory_url = CA_DIRECTORIES['letsencrypt_staging']  # 演示用Let's Encrypt
+        # 获取CA目录URL - 仅使用Google或ZeroSSL
+        directory_url = CA_DIRECTORIES[ca]
         
-        # 创建ACME客户端
-        acme_client, jwk = create_acme_client(directory_url, account_key_path)
+        # 创建ACME客户端，带EAB
+        acme_client, jwk = create_acme_client(directory_url, account_key_path, eab_kid, eab_hmac_key)
         
-        # 注册账户
+        # 注册账户 - 支持EAB
         try:
-            registration = acme_client.new_account(
-                messages.NewRegistration.from_data(
-                    email=email,
-                    terms_of_service_agreed=True
+            if eab_kid and eab_hmac_key:
+                # 解码EAB HMAC Key
+                import binascii
+                try:
+                    mac_key = binascii.unhexlify(eab_hmac_key)
+                except:
+                    # 尝试base64解码
+                    import base64
+                    mac_key = base64.urlsafe_b64decode(eab_hmac_key + '=' * ((4 - len(eab_hmac_key) % 4) % 4))
+                
+                # 创建EAB注册
+                from josepy import JWK
+                external_account_binding = messages.ExternalAccountBinding(
+                    protected=messages.Header(
+                        alg='HS256',
+                        kid=eab_kid,
+                        url=directory_url
+                    ),
+                    payload=jwk,
+                    signature=mac_key
                 )
-            )
+                
+                registration = acme_client.new_account(
+                    messages.NewRegistration.from_data(
+                        email=email,
+                        terms_of_service_agreed=True,
+                        external_account_binding=external_account_binding
+                    )
+                )
+            else:
+                # 无EAB注册（仅部分CA支持）
+                registration = acme_client.new_account(
+                    messages.NewRegistration.from_data(
+                        email=email,
+                        terms_of_service_agreed=True
+                    )
+                )
             print(f"Account registered: {registration.uri}")
         except Exception as e:
             print(f"Account reg: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         # 创建订单
         order = acme_client.new_order([domain])
@@ -280,35 +323,10 @@ def check_verification(request_id):
         # 加载临时数据
         temp_file = DATA_DIR / f'{request_id}_temp.json'
         if not temp_file.exists():
-            # 使用演示模式作为后备
-            cert_key_path = CERTS_DIR / f'{request_id}_key.pem'
-            cert_key = load_pem_key(cert_key_path)
-            
-            subject = issuer = x509.Name([
-                x509.NameAttribute(NameOID.COMMON_NAME, req['domain'])
-            ])
-            cert = x509.CertificateBuilder().subject_name(subject) \
-                .issuer_name(issuer) \
-                .public_key(cert_key.public_key()) \
-                .serial_number(x509.random_serial_number()) \
-                .not_valid_before(datetime.utcnow()) \
-                .not_valid_after(datetime.utcnow() + timedelta(days=90)) \
-                .add_extension(x509.SubjectAlternativeName([x509.DNSName(req['domain'])]), critical=False) \
-                .sign(cert_key, hashes.SHA256())
-            
-            cert_path = CERTS_DIR / f'{request_id}_cert.pem'
-            chain_path = CERTS_DIR / f'{request_id}_chain.pem'
-            
-            cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
-            cert_path.write_bytes(cert_pem)
-            chain_path.write_bytes(cert_pem)
-            
-            requests_store[request_id]['cert_path'] = str(cert_path)
-            requests_store[request_id]['chain_path'] = str(chain_path)
-            requests_store[request_id]['status'] = 'issued'
-            requests_store[request_id]['issued_at'] = datetime.now().isoformat()
-            
-            return jsonify({'status': 'valid'})
+            return jsonify({
+                'status': 'invalid',
+                'message': '请求数据丢失，请重新提交申请'
+            }), 400
         
         temp_data = json.loads(temp_file.read_text())
         
@@ -385,39 +403,7 @@ def check_verification(request_id):
         print(f"Check error: {str(e)}")
         import traceback
         traceback.print_exc()
-        
-        # 演示模式作为后备
-        cert_key_path = CERTS_DIR / f'{request_id}_key.pem'
-        if cert_key_path.exists():
-            cert_key = load_pem_key(cert_key_path)
-            
-            subject = issuer = x509.Name([
-                x509.NameAttribute(NameOID.COMMON_NAME, req['domain'])
-            ])
-            cert = x509.CertificateBuilder().subject_name(subject) \
-                .issuer_name(issuer) \
-                .public_key(cert_key.public_key()) \
-                .serial_number(x509.random_serial_number()) \
-                .not_valid_before(datetime.utcnow()) \
-                .not_valid_after(datetime.utcnow() + timedelta(days=90)) \
-                .add_extension(x509.SubjectAlternativeName([x509.DNSName(req['domain'])]), critical=False) \
-                .sign(cert_key, hashes.SHA256())
-            
-            cert_path = CERTS_DIR / f'{request_id}_cert.pem'
-            chain_path = CERTS_DIR / f'{request_id}_chain.pem'
-            
-            cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
-            cert_path.write_bytes(cert_pem)
-            chain_path.write_bytes(cert_pem)
-            
-            requests_store[request_id]['cert_path'] = str(cert_path)
-            requests_store[request_id]['chain_path'] = str(chain_path)
-            requests_store[request_id]['status'] = 'issued'
-            requests_store[request_id]['issued_at'] = datetime.now().isoformat()
-            
-            return jsonify({'status': 'valid'})
-        
-        return jsonify({'error': f'检查失败: {str(e)}'}), 500
+        return jsonify({'error': f'验证检查失败: {str(e)}'}), 500
 
 
 @app.route('/api/cert/<request_id>', methods=['GET'])

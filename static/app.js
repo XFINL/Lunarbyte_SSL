@@ -11,12 +11,20 @@ document.getElementById('ssl-form').addEventListener('submit', async (e) => {
     
     const domain = document.getElementById('domain').value;
     const email = document.getElementById('email').value;
+    const eabKid = document.getElementById('eab-kid').value;
+    const eabHmac = document.getElementById('eab-hmac').value;
     
     try {
         const response = await fetch('/api/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domain, ca: selectedCA, email })
+            body: JSON.stringify({ 
+                domain, 
+                ca: selectedCA, 
+                email,
+                eab_kid: eabKid,
+                eab_hmac_key: eabHmac
+            })
         });
         
         const data = await response.json();
@@ -60,6 +68,14 @@ function selectCA(value, displayText) {
     // Mark selected option
     document.querySelectorAll('.ca-option').forEach(el => el.classList.remove('selected'));
     event.currentTarget.classList.add('selected');
+    
+    // Show/hide EAB fields based on CA selection
+    const eabFields = document.getElementById('eab-fields');
+    if (value === 'google' || value === 'zerossl') {
+        eabFields.classList.remove('hidden');
+    } else {
+        eabFields.classList.add('hidden');
+    }
     
     toggleCAOptions();
 }
